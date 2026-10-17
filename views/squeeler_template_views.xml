@@ -15,6 +15,8 @@
         </field>
     </record>
 
+    <!-- The arch loader reads %(xxx)s as an xmlid reference, then turns %% into %,
+         so in the arch below %%(name)s displays as %(name)s and %%%% as %%. -->
     <record id="tk_squeeler_template_view_form" model="ir.ui.view">
         <field name="name">tk.squeeler.template.form</field>
         <field name="model">tk.squeeler.template</field>
@@ -38,12 +40,12 @@
                     <notebook>
                         <page name="query" string="Query">
                             <field name="query" class="font-monospace"
-                                   placeholder="SELECT id, name FROM res_partner WHERE company_id = ANY(%(company_ids)s) AND name ILIKE %(pattern)s"/>
+                                   placeholder="SELECT id, name FROM res_partner WHERE company_id = ANY(%%(company_ids)s) AND name ILIKE %%(pattern)s"/>
                             <div class="text-muted mt-2">
-                                One read-only statement. Use <code>%(name)s</code> for a declared parameter and
-                                <code>%%</code> for a literal <code>%</code>. Always available, filled in from the caller:
-                                <code>%(uid)s</code>, <code>%(company_id)s</code> and <code>%(company_ids)s</code>.
-                                Match a list parameter with <code>= ANY(%(name)s)</code>.
+                                One read-only statement. Use <code>%%(name)s</code> for a declared parameter and
+                                <code>%%%%</code> for a literal <code>%</code>. Always available, filled in from the caller:
+                                <code>%%(uid)s</code>, <code>%%(company_id)s</code> and <code>%%(company_ids)s</code>.
+                                Match a list parameter with <code>= ANY(%%(name)s)</code>.
                             </div>
                         </page>
                         <page name="params" string="Parameters">
