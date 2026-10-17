@@ -155,16 +155,19 @@ class TkSqueelerTemplate(models.Model):
     # ------------------------------------------------------------------
 
     @api.model
-    def run(self, code, params=None, limit=None):
+    def run(self, code, params=None, limit=None, expected_checksum=None):
         """Run the active template ``code`` and return its result set.
 
         :param str code: the template's code
         :param dict params: values for the declared parameters, by name
         :param int limit: rows to return, capped by the template and by
             ``tk_squeeler.max_rows``
+        :param str expected_checksum: the ``checksum`` from :meth:`describe`
+            the caller was built against; the call is refused if the template
+            has changed since, instead of returning differently shaped rows
         :return: ``{'columns', 'rows', 'rowcount', 'truncated'}``
         """
-        return self.env['tk.squeeler']._run_template(code, params, limit)
+        return self.env['tk.squeeler']._run_template(code, params, limit, expected_checksum)
 
     @api.model
     @api.readonly

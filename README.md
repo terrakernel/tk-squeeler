@@ -146,6 +146,12 @@ can't see the query, such as an LLM picking a tool.
 across cloned databases while the template is unchanged, so clients and the
 proxy can use it to detect drift or as a cache key.
 
+Pass it back as `run(..., expected_checksum=...)` to pin a caller to the
+version it was built against. If the template has changed since, the call is
+refused with a `ValidationError` naming both checksums, rather than returning
+rows of a different shape. Generated SDK code should always send it. Without
+it, `run` simply uses the current version.
+
 `describe` and `catalog` calls are not written to the audit log. They read no
 data.
 

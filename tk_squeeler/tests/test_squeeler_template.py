@@ -149,3 +149,13 @@ class TestSqueelerTemplate(TransactionCase):
         self.assertEqual(self.template.copy()._checksum(), before)
         self.template.query += " -- changed"
         self.assertNotEqual(self.template._checksum(), before)
+
+    def test_expected_checksum(self):
+        checksum = self.Template.with_user(self.runner).describe('users_by_login')['checksum']
+        params = {'login': 'squeeler_runner'}
+        self.assertEqual(len(self._run(self.runner, params=params, expected_checksum=checksum)['rows']), 1)
+        self.template.query += " -- changed"
+        with self.assertRaises(ValidationError):
+            self._run(self.runner, params=params, expected_checksum=checksum)
+        # Without it the caller just gets the new behaviour.
+        self.assertEqual(len(self._run(self.runner, params=params)['rows']), 1)

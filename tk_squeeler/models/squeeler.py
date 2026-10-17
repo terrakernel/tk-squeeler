@@ -68,7 +68,7 @@ class TkSqueeler(models.AbstractModel):
         return self._execute_logged(mode, query, params, limit, authorize=lambda: self._check_group(group_xmlid))
 
     @api.model
-    def _run_template(self, code, params, limit):
+    def _run_template(self, code, params, limit, expected_checksum=None):
         """Back end of tk.squeeler.template.run(): templates are read-only."""
         state = {'template': self.env['tk.squeeler.template'], 'code': code}
 
@@ -77,6 +77,14 @@ class TkSqueeler(models.AbstractModel):
             # Constraints guard edits made through the form; this also catches
             # parameter rows changed directly, before psycopg2 hits a KeyError.
             template._check_query()
+            if expected_checksum is not None:
+                checksum = template._checksum()
+                if expected_checksum != checksum:
+                    raise ValidationError(_(
+                        "Template %(code)s has changed: expected checksum %(expected)s, current %(current)s. "
+                        "Call describe() again and update the caller.",
+                        code=template.code, expected=expected_checksum, current=checksum,
+                    ))
             values = {**template._coerce_params(params), **self._server_params()}
             return template.query, values, template.max_rows
 
