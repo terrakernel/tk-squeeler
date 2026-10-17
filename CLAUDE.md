@@ -4,15 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-An Odoo 20.0 addon (`tk_squeeler/`, depends only on `base`) that exposes raw PostgreSQL to external API clients (`execute_kw`, JSON-2, ODXProxy `call_method`). `README.md` is the user-facing spec for the API, guarantees and limits. Keep it in sync when behaviour changes.
+An Odoo 20.0 addon, `tk_squeeler` (depends only on `base`), that exposes raw PostgreSQL to external API clients (`execute_kw`, JSON-2, ODXProxy `call_method`). `README.md` is the user-facing spec for the API, guarantees and limits. Keep it in sync when behaviour changes.
+
+The repo root *is* the module, and Odoo takes the module name from the folder name. The checkout must therefore be named `tk_squeeler` (`git clone git@github.com:terrakernel/tk-squeeler.git tk_squeeler`): a default `tk-squeeler` clone is not a valid module name, and every `tk_squeeler.*` xmlid would break. The *parent* folder of the checkout goes on `--addons-path`.
 
 ## Running tests
 
-There is no build, lint config or test runner in the repo. Tests run under an Odoo 20.0 server with this repo's root on `--addons-path`:
+There is no build, lint config or test runner in the repo. Tests run under an Odoo 20.0 server:
 
 ```sh
 # whole module
-odoo-bin -d <db> --addons-path=<odoo>/addons,<this repo> -i tk_squeeler --test-enable --stop-after-init
+odoo-bin -d <db> --addons-path=<odoo>/addons,<parent of the tk_squeeler checkout> -i tk_squeeler --test-enable --stop-after-init
 # one class or one method (Odoo test-tags syntax: [module][/Class][.method])
 odoo-bin ... -u tk_squeeler --test-tags /tk_squeeler:TestSqueelerTemplate
 odoo-bin ... -u tk_squeeler --test-tags /tk_squeeler:TestSqueeler.test_read_returns_rows
