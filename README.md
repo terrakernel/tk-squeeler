@@ -155,6 +155,135 @@ it, `run` simply uses the current version.
 `describe` and `catalog` calls are not written to the audit log. They read no
 data.
 
+## Calling through ODXProxy
+
+[ODXProxy](https://odxproxy.io) is a JSON-RPC proxy in front of Odoo. Every
+Squeeler method is a plain model method, so it is reached the same way as any
+other: through `call_method` on v1, or by method name on v2. Odoo 20 supports
+both. Prefer v2 for new code: it survives the move to Odoo 22, which drops
+`/jsonrpc`.
+
+Two keys are involved, and they are never the same value:
+
+- the **proxy key** goes in the `x-api-key` HTTP header;
+- the **Odoo key** goes in the body as `odoo_instance.api_key`. It must be an
+  Odoo API key (scope `rpc`) of a user who holds the Squeeler groups, or the
+  groups of the templates it runs. See [Granting access](#granting-access).
+
+### v1: `POST /api/odoo/execute`
+
+`action` is always `call_method`, `fn_name` is the Squeeler method, `params`
+holds the positional arguments and `keyword` the named ones. Careful with the
+name clash: the envelope's `params` is the argument list, while the method's
+own `params` argument goes inside it or inside `keyword`.
+
+```json
+{
+  "id": "req-1",
+  "action": "call_method",
+  "model_id": "tk.squeeler",
+  "fn_name": "execute_read",
+  "params": ["SELECT id, name FROM res_partner WHERE id = %s", [7]],
+  "keyword": {"limit": 50},
+  "odoo_instance": {"url": "https://erp.example.com", "db": "prod", "user_id": 2, "api_key": "<odoo key>"}
+}
+```
+
+Other calls change only `model_id`, `fn_name`, `params` and `keyword`:
+
+| Call | `model_id` | `fn_name` | `params` | `keyword` |
+|---|---|---|---|---|
+| Raw write | `tk.squeeler` | `execute_write` | `["UPDATE res_partner SET ref = %(ref)s WHERE id = %(id)s", {"ref": "X1", "id": 7}]` | |
+| Run a template | `tk.squeeler.template` | `run` | `["partner_balance"]` | `{"params": {"date_to": "2026-09-30"}, "limit": 100, "expected_checksum": "9f2c..."}` |
+| List templates | `tk.squeeler.template` | `catalog` | `[]` | |
+| Describe a template | `tk.squeeler.template` | `describe` | `["partner_balance"]` | |
+
+### v2: `POST /v2/odoo/execute`
+
+`method` is the Squeeler method and every argument is named in `kwargs`, using
+the Python parameter names (`query`, `params`, `limit`, `code`,
+`expected_checksum`). There is no `user_id`. All Squeeler methods are
+`@api.model`, so never send `ids`: Odoo rejects it with code `422`.
+
+```json
+{
+  "id": "req-2",
+  "model_id": "tk.squeeler.template",
+  "method": "run",
+  "kwargs": {
+    "code": "partner_balance",
+    "params": {"date_to": "2026-09-30", "partner_ids": [7, 9]},
+    "limit": 100,
+    "expected_checksum": "9f2c...",
+    "context": {"allowed_company_ids": [1, 3]}
+  },
+  "odoo_instance": {"url": "https://erp.example.com", "db": "prod", "api_key": "<odoo key>"}
+}
+```
+
+| Call | `model_id` | `method` | `kwargs` |
+|---|---|---|---|
+| Raw read | `tk.squeeler` | `execute_read` | `{"query": "SELECT id, name FROM res_partner WHERE id = %s", "params": [7], "limit": 50}` |
+| Raw write | `tk.squeeler` | `execute_write` | `{"query": "UPDATE res_partner SET ref = %(ref)s WHERE id = %(id)s", "params": {"ref": "X1", "id": 7}}` |
+| List templates | `tk.squeeler.template` | `catalog` | `{}` |
+| Describe a template | `tk.squeeler.template` | `describe` | `{"code": "partner_balance"}` |
+
+`context.allowed_company_ids` (in `kwargs` on v2, in `keyword` on v1) is what
+fills the `%(company_ids)s` server parameter, limited to the user's companies.
+
+### Python SDK
+
+With [`terrakernel-odxproxyclient`](https://github.com/terrakernel):
+
+```python
+from terrakernel.odxproxyclient import ODXProxyClient
+
+with ODXProxyClient(base_url="https://proxy.example.com", api_key="<proxy key>") as client:
+    odoo = client.for_instance_v2(url="https://erp.example.com", db="prod", api_key="<odoo key>")
+
+    entry = odoo.call_method("tk.squeeler.template", "describe",
+                             kwargs={"code": "partner_balance"})
+    result = odoo.call_method("tk.squeeler.template", "run", kwargs={
+        "code": "partner_balance",
+        "params": {"date_to": "2026-09-30"},
+        "expected_checksum": entry["checksum"],
+    })
+    for row in result["rows"]:
+        print(dict(zip(result["columns"], row)))
+
+    # v1 equivalent
+    v1 = client.for_instance(url="https://erp.example.com", db="prod", user_id=2, api_key="<odoo key>")
+    v1.call_method("tk.squeeler", "execute_read",
+                   params=["SELECT id, login FROM res_users WHERE active"], keyword={"limit": 10})
+```
+
+### Responses and errors
+
+On success, the envelope's `result` is the method's return value, such as
+`{"columns": [...], "rows": [...], "rowcount": 1, "truncated": false}`.
+
+A Squeeler error still comes back as **HTTP 200**, with `error` set instead of
+`result`, so check `error` first. Branch on `error.data.name` and show
+`error.data.message`, which carries PostgreSQL's text for a failed query:
+
+| Raised by Squeeler | `error.data.name` | `error.code` on v2 |
+|---|---|---|
+| Missing group, or unknown/forbidden template | `odoo.exceptions.AccessError` | `403` |
+| Bad input, several statements, checksum mismatch | `odoo.exceptions.ValidationError` | `422` |
+| PostgreSQL error (syntax, timeout, write in read mode) | `odoo.exceptions.UserError` | `422` |
+
+On v1, `error.code` is `0` and `error.message` is just `Odoo Server Error`;
+the details are in `error.data` as above.
+
+### Timeouts
+
+ODXProxy waits 15 seconds for Odoo by default, while
+`tk_squeeler.statement_timeout_ms` defaults to 30 seconds. Send an
+`x-request-timeout` header (in seconds; `timeout_secs=` in the Python SDK)
+above the statement timeout for long queries. Otherwise the proxy answers
+`-32003` (HTTP 504) while the query keeps running in Odoo. Retry a `-32003`
+only for reads: an `execute_write` may already have committed.
+
 ## Guarantees and limits
 
 **One statement per call.** psycopg2 uses PostgreSQL's simple query protocol,
