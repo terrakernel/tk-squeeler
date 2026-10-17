@@ -1,2 +1,4 @@
 id,name,model_id,group_id/id,operation,domain
 access_tk_squeeler_log_system,tk.squeeler.log system,tk.squeeler.log,base.group_system,rd,
+access_tk_squeeler_template_system,tk.squeeler.template system,tk.squeeler.template,base.group_system,crud,
+access_tk_squeeler_template_param_system,tk.squeeler.template.param system,tk.squeeler.template.param,base.group_system,crud,

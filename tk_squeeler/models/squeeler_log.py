@@ -11,7 +11,6 @@ class TkSqueelerLog(models.Model):
     _name = 'tk.squeeler.log'
     _description = 'Squeeler Audit Log'
     _order = 'id desc'
-    _rec_name = 'query'
 
     user_id = fields.Many2one('res.users', string='User', required=True, ondelete='restrict', index=True)
     mode = fields.Selection(
@@ -19,7 +18,9 @@ class TkSqueelerLog(models.Model):
         required=True,
         index=True,
     )
-    query = fields.Text(required=True)
+    query = fields.Text(help="Empty when a template call was refused before its query was known.")
+    template_id = fields.Many2one('tk.squeeler.template', string='Template', ondelete='set null', index=True)
+    template_code = fields.Char(help="The code the caller asked for, kept even if the template is deleted.")
     params = fields.Text(help="The placeholder values, as JSON.")
 
     state = fields.Selection(

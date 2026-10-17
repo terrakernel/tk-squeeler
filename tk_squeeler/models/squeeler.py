@@ -65,11 +65,37 @@ class TkSqueeler(models.AbstractModel):
     # ------------------------------------------------------------------
 
     def _run(self, mode, group_xmlid, query, params, limit):
+        return self._execute_logged(mode, query, params, limit, authorize=lambda: self._check_group(group_xmlid))
+
+    @api.model
+    def _run_template(self, code, params, limit):
+        """Back end of tk.squeeler.template.run(): templates are read-only."""
+        state = {'template': self.env['tk.squeeler.template'], 'code': code}
+
+        def authorize():
+            template = state['template'] = state['template']._get_runnable(code)
+            # Constraints guard edits made through the form; this also catches
+            # parameter rows changed directly, before psycopg2 hits a KeyError.
+            template._check_query()
+            values = {**template._coerce_params(params), **self._server_params()}
+            return template.query, values, template.max_rows
+
+        return self._execute_logged('read', None, params, limit, authorize=authorize, template_state=state)
+
+    def _execute_logged(self, mode, query, params, limit, authorize, template_state=None):
+        """Authorize, run and audit one statement.
+
+        ``authorize`` raises AccessError or ValidationError to refuse the call.
+        For a template it returns ``(query, params, row_cap)`` to run instead.
+        """
         started = time.monotonic()
         try:
-            self._check_group(group_xmlid)
+            prepared = authorize()
+            row_cap = None
+            if prepared:
+                query, params, row_cap = prepared
             self._validate(query, params)
-            limit = self._clamp_limit(limit)
+            limit = self._clamp_limit(limit, row_cap)
             if mode == 'read':
                 result = self._execute_read_only(query, params, limit)
             else:
@@ -78,7 +104,7 @@ class TkSqueeler(models.AbstractModel):
             message = str(e).strip()
             # The request transaction is about to roll back, taking anything
             # written on it with it, so failures are logged on a cursor of their own.
-            self._log_on_new_cursor(mode, query, params, started, error=message)
+            self._log_on_new_cursor(mode, query, params, started, error=message, template_state=template_state)
             _logger.info("tk_squeeler: %s by uid %s failed: %s", mode, self.env.uid, message)
             if isinstance(e, (AccessError, ValidationError)):
                 raise
@@ -86,7 +112,7 @@ class TkSqueeler(models.AbstractModel):
 
         # Successful writes are logged in the same transaction as the write,
         # so the log never claims a change that was rolled back.
-        self._log(self.env, mode, query, params, started, rowcount=result['rowcount'])
+        self._log(self.env, mode, query, params, started, rowcount=result['rowcount'], template_state=template_state)
         return result
 
     def _execute_read_only(self, query, params, limit):
@@ -176,13 +202,28 @@ class TkSqueeler(models.AbstractModel):
         return max(self.env['ir.config_parameter'].sudo().get_int('tk_squeeler.max_rows', DEFAULT_MAX_ROWS), 1)
 
     @api.model
-    def _clamp_limit(self, limit):
+    def _clamp_limit(self, limit, row_cap=None):
         max_rows = self._max_rows()
+        if row_cap:
+            max_rows = min(max_rows, row_cap)
         if limit is None:
             return max_rows
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
             raise ValidationError(_("The limit must be a positive integer."))
         return min(limit, max_rows)
+
+    @api.model
+    def _server_params(self):
+        """Template parameters taken from the caller, never from the request body.
+
+        ``env.companies`` honours ``allowed_company_ids`` from the request
+        context, and Odoo refuses companies the user does not belong to.
+        """
+        return {
+            'uid': self.env.uid,
+            'company_id': self.env.company.id,
+            'company_ids': self.env.companies.ids,
+        }
 
     @api.model
     def _statement_timeout(self):
@@ -193,11 +234,19 @@ class TkSqueeler(models.AbstractModel):
     # ------------------------------------------------------------------
 
     @api.model
-    def _log(self, env, mode, query, params, started, rowcount=0, error=None):
+    def _log(self, env, mode, query, params, started, rowcount=0, error=None, template_state=None):
+        template_vals = {}
+        if template_state:
+            code = template_state['code']
+            template_vals = {
+                'template_id': template_state['template'].id,
+                'template_code': code if isinstance(code, str) else repr(code),
+            }
         env['tk.squeeler.log'].sudo().create({
+            **template_vals,
             'user_id': self.env.uid,
             'mode': mode,
-            'query': query if isinstance(query, str) else repr(query),
+            'query': query if isinstance(query, str) or query is None else repr(query),
             'params': json.dumps(params, default=str) if params is not None else False,
             'state': 'failed' if error else 'done',
             'rowcount': rowcount,
@@ -206,9 +255,9 @@ class TkSqueeler(models.AbstractModel):
         })
 
     @api.model
-    def _log_on_new_cursor(self, mode, query, params, started, error):
+    def _log_on_new_cursor(self, mode, query, params, started, error, template_state=None):
         try:
             with self.env.registry.cursor() as cr:
-                self._log(self.env(cr=cr), mode, query, params, started, error=error)
+                self._log(self.env(cr=cr), mode, query, params, started, error=error, template_state=template_state)
         except Exception:
             _logger.exception("tk_squeeler: could not record a failed %s in the audit log", mode)

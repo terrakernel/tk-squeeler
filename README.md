@@ -48,6 +48,65 @@ models.execute_kw(db, uid, api_key, 'tk.squeeler', 'execute_read',
                   {'limit': 50})
 ```
 
+## Query templates
+
+Settings administrators save read-only queries under Settings → Squeeler →
+Query Templates. API clients run them by code:
+
+```python
+# execute_kw / ODXProxy v1 call_method
+models.execute_kw(db, uid, api_key, 'tk.squeeler.template', 'run', ['partner_balance'],
+                  {'params': {'date_to': '2026-09-30', 'partner_ids': [7, 9]}, 'limit': 100})
+```
+
+```http
+POST /json/2/tk.squeeler.template/run          (JSON-2 / ODXProxy v2)
+{"code": "partner_balance", "params": {"date_to": "2026-09-30", "partner_ids": [7, 9]}}
+```
+
+The result has the same `{columns, rows, rowcount, truncated}` shape as
+`execute_read`, and runs through the same read-only path: separate `READ ONLY`
+transaction, server-side cursor, statement timeout, audit log.
+
+**Access.** A template lists its allowed groups, and a caller needs any one of
+them. The Squeeler SQL groups are not involved, so an integration user can run
+a few vetted queries without raw SQL access. A missing template and a forbidden
+one return the same `AccessError`, so callers cannot probe which codes exist.
+
+**Parameters** are passed in one `params` dict, by name. Each one is declared
+on the template with a type (`int`, `float`, `str`, `bool`, `date`,
+`datetime`, `int_list`, `str_list`), an optional `required` flag and an
+optional JSON default (`10`, `"draft"`, `[1, 2]`). Values are converted before
+the query runs. An unknown name, a missing required value or a wrong type
+raises `ValidationError`. Use `= ANY(%(name)s)` to match a list.
+
+**Server-filled parameters.** `%(uid)s`, `%(company_id)s` and
+`%(company_ids)s` can be used in any template without being declared. They come
+from the caller's session (`company_ids` honours `allowed_company_ids` in the
+request context, limited to the user's companies) and cannot be passed in
+`params`. Use them to scope a template to the caller.
+
+**Checked on save.** A template must be a single statement, every
+`%(name)s` it uses must be declared or server-filled, every declared parameter
+must be used, and a literal `%` must be written `%%`. psycopg2 substitutes
+inside string literals too, so the `%%` rule applies everywhere. The checks run
+again on every call.
+
+**Codes.** A code is stored lowercase (`[a-z][a-z0-9_]*`), and lookups ignore
+case and surrounding spaces. A partial unique index allows only one *active*
+template per code:
+
+- to replace a template, archive it and create a new one with the same code;
+  the old version stays readable, and in the audit log;
+- unarchiving a template whose code has been taken over is refused;
+- *Duplicate* gives the copy `<code>_copy`, then `<code>_copy_2`, and so on.
+
+The code is the stable key across databases cloned from the same template
+database. Record ids are not.
+
+**Row cap.** A template's *Row Cap* lowers `tk_squeeler.max_rows` for that
+template. It can't raise it.
+
 ## Guarantees and limits
 
 **One statement per call.** psycopg2 uses PostgreSQL's simple query protocol,
@@ -87,8 +146,9 @@ request's cursor usable.
 
 ## Audit log
 
-Every call is recorded in `tk.squeeler.log`, under Settings → SQL Audit Log
-(system administrators only). That includes denied calls, rejected input and
+Every call is recorded in `tk.squeeler.log`, under Settings → Squeeler →
+SQL Audit Log (system administrators only). Template calls also record the
+template and the code that was asked for. That includes denied calls, rejected input and
 failed queries. Each entry holds the user, mode, query, params, row count,
 duration and error.
 

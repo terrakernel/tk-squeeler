@@ -20,6 +20,15 @@ class TestSqueeler(TransactionCase):
         # back onto the test transaction, which is never committed.
         self.enterContext(self.registry_test_mode())
 
+    def _raises_and_logs(self, exception, func, *args):
+        # Not assertRaises: Odoo wraps it in a savepoint that would roll back
+        # the failure log this module writes.
+        try:
+            func(*args)
+        except exception:
+            return
+        self.fail(f"{exception.__name__} not raised")
+
     def _logs(self, user):
         self.env.invalidate_all()
         return self.env['tk.squeeler.log'].search([('user_id', '=', user.id)])
@@ -44,11 +53,11 @@ class TestSqueeler(TransactionCase):
 
     def test_read_cannot_write(self):
         squeeler = self.env['tk.squeeler'].with_user(self.reader)
-        with self.assertRaises(UserError):
-            squeeler.execute_read("SELECT nextval('res_partner_id_seq')")
-        with self.assertRaises(UserError):
-            squeeler.execute_read("UPDATE res_partner SET name = 'x'")
-        self.assertEqual(set(self._logs(self.reader).mapped('state')), {'failed'})
+        self._raises_and_logs(UserError, squeeler.execute_read, "SELECT nextval('res_partner_id_seq')")
+        self._raises_and_logs(UserError, squeeler.execute_read, "UPDATE res_partner SET name = 'x'")
+        logs = self._logs(self.reader)
+        self.assertEqual(len(logs), 2)
+        self.assertEqual(set(logs.mapped('state')), {'failed'})
 
     def test_multiple_statements_rejected(self):
         with self.assertRaises(ValidationError):
@@ -57,8 +66,7 @@ class TestSqueeler(TransactionCase):
             )
 
     def test_access(self):
-        with self.assertRaises(AccessError):
-            self.env['tk.squeeler'].with_user(self.nobody).execute_read("SELECT 1")
+        self._raises_and_logs(AccessError, self.env['tk.squeeler'].with_user(self.nobody).execute_read, "SELECT 1")
         with self.assertRaises(AccessError):
             self.env['tk.squeeler'].with_user(self.reader).execute_write("SELECT 1")
         log = self._logs(self.nobody)

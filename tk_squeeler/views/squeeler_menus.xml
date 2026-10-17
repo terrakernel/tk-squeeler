@@ -1,11 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
-    <menuitem id="menu_squeeler_log"
-              name="SQL Audit Log"
+    <menuitem id="menu_squeeler_root"
+              name="Squeeler"
               parent="base.menu_administration"
-              action="tk_squeeler_log_action"
               sequence="91"
               groups="base.group_system"/>
+
+    <menuitem id="menu_squeeler_template"
+              name="Query Templates"
+              parent="menu_squeeler_root"
+              action="tk_squeeler_template_action"
+              sequence="10"/>
+
+    <menuitem id="menu_squeeler_log"
+              name="SQL Audit Log"
+              parent="menu_squeeler_root"
+              action="tk_squeeler_log_action"
+              sequence="20"/>
 
 </odoo>

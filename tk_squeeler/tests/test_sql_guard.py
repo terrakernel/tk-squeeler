@@ -1,6 +1,6 @@
 from odoo.tests.common import BaseCase
 
-from ..sql_guard import is_single_statement
+from ..sql_guard import is_single_statement, named_placeholders
 
 
 class TestSqlGuard(BaseCase):
@@ -57,3 +57,15 @@ class TestSqlGuard(BaseCase):
         for query in ["", "   ", ";", "-- only a comment", "/* only */"]:
             with self.subTest(query=query):
                 self.assertFalse(is_single_statement(query))
+
+    def test_named_placeholders(self):
+        self.assertEqual(
+            named_placeholders("SELECT %(a)s, %(b_2)s WHERE x LIKE 'a%%' AND y = %(a)s"),
+            {'a', 'b_2'},
+        )
+        self.assertEqual(named_placeholders("SELECT 1"), set())
+
+    def test_named_placeholders_rejects_stray_percent(self):
+        for query in ["SELECT %s", "SELECT 'a%'", "SELECT %(a)d", "SELECT 1 %"]:
+            with self.subTest(query=query), self.assertRaises(ValueError):
+                named_placeholders(query)

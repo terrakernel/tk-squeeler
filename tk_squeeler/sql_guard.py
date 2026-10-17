@@ -105,3 +105,23 @@ def is_single_statement(query: str) -> bool:
         i += 1
 
     return seen_token
+
+
+_PERCENT = re.compile(r'%(%|\(([A-Za-z_][A-Za-z0-9_]*)\)s)?')
+
+
+def named_placeholders(query: str) -> set[str]:
+    """Return the names of the ``%(name)s`` placeholders in ``query``.
+
+    psycopg2 substitutes on the raw text, inside string literals and comments
+    too, so this scans the raw text the same way. Any ``%`` that is neither
+    ``%%`` nor ``%(name)s`` makes psycopg2 fail at run time, so it raises
+    ``ValueError`` here instead. That includes positional ``%s``.
+    """
+    names = set()
+    for match in _PERCENT.finditer(query):
+        if match.group(1) is None:
+            raise ValueError(f"stray '%' at position {match.start()}: write a literal '%' as '%%'")
+        if match.group(2):
+            names.add(match.group(2))
+    return names

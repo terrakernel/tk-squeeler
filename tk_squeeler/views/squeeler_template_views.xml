@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="tk_squeeler_template_view_list" model="ir.ui.view">
+        <field name="name">tk.squeeler.template.list</field>
+        <field name="model">tk.squeeler.template</field>
+        <field name="arch" type="xml">
+            <list string="Query Templates" decoration-muted="not active">
+                <field name="code"/>
+                <field name="name"/>
+                <field name="group_ids" widget="many2many_tags"/>
+                <field name="max_rows" optional="hide"/>
+                <field name="active" column_invisible="True"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="tk_squeeler_template_view_form" model="ir.ui.view">
+        <field name="name">tk.squeeler.template.form</field>
+        <field name="model">tk.squeeler.template</field>
+        <field name="arch" type="xml">
+            <form string="Query Template">
+                <sheet>
+                    <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger" invisible="active"/>
+                    <div class="oe_title">
+                        <h1><field name="name" placeholder="e.g. Partner balances"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="code" placeholder="e.g. partner_balance"/>
+                            <field name="group_ids" widget="many2many_tags"/>
+                        </group>
+                        <group>
+                            <field name="max_rows"/>
+                            <field name="active" invisible="1"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page name="query" string="Query">
+                            <field name="query" class="font-monospace"
+                                   placeholder="SELECT id, name FROM res_partner WHERE company_id = ANY(%(company_ids)s) AND name ILIKE %(pattern)s"/>
+                            <div class="text-muted mt-2">
+                                One read-only statement. Use <code>%(name)s</code> for a declared parameter and
+                                <code>%%</code> for a literal <code>%</code>. Always available, filled in from the caller:
+                                <code>%(uid)s</code>, <code>%(company_id)s</code> and <code>%(company_ids)s</code>.
+                                Match a list parameter with <code>= ANY(%(name)s)</code>.
+                            </div>
+                        </page>
+                        <page name="params" string="Parameters">
+                            <field name="param_ids">
+                                <list editable="bottom">
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="name"/>
+                                    <field name="type"/>
+                                    <field name="required"/>
+                                    <field name="default" placeholder='e.g. 10, "draft", [1, 2]'/>
+                                    <field name="description"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page name="description" string="Description">
+                            <field name="description" placeholder="What the template returns, and for which integration."/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="tk_squeeler_template_view_search" model="ir.ui.view">
+        <field name="name">tk.squeeler.template.search</field>
+        <field name="model">tk.squeeler.template</field>
+        <field name="arch" type="xml">
+            <search string="Query Templates">
+                <field name="code"/>
+                <field name="name"/>
+                <field name="query"/>
+                <field name="group_ids"/>
+                <separator/>
+                <filter name="inactive" string="Archived" domain="[('active', '=', False)]"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="tk_squeeler_template_action" model="ir.actions.act_window">
+        <field name="name">Query Templates</field>
+        <field name="res_model">tk.squeeler.template</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Create a query template</p>
+            <p>API clients run a template by its code through tk.squeeler.template.run(code, params). Only members of the template's allowed groups can run it, and they need no raw SQL access.</p>
+        </field>
+    </record>
+
+</odoo>
