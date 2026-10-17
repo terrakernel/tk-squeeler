@@ -132,6 +132,34 @@ class TkSqueeler(models.AbstractModel):
             cr.rollback()
             cr.close()
 
+    def _describe_columns(self, query, params):
+        """Return ``[(name, pg_type, category, element_type, element_category)]`` for ``query``.
+
+        The query is planned behind a server-side cursor and fetched zero rows
+        from, so no data is read. Types come from the live database, so a
+        schema change is visible on the next call.
+        """
+        cr = self.env.registry.cursor(readonly=True)
+        try:
+            cr.execute("SET TRANSACTION READ ONLY")
+            cr.execute("SELECT set_config('statement_timeout', %s, true)", [str(self._statement_timeout())])
+            cr.execute("DECLARE tk_squeeler NO SCROLL CURSOR FOR " + query, params or None, log_exceptions=False)
+            # Before the first row, FETCH 0 returns nothing but still sets the description.
+            cr.execute("FETCH FORWARD 0 FROM tk_squeeler")
+            columns = [(column.name, column.type_code) for column in cr.description]
+            cr.execute("""
+                SELECT t.oid, format_type(t.oid, NULL), t.typcategory,
+                       format_type(e.oid, NULL), e.typcategory
+                  FROM pg_type t
+             LEFT JOIN pg_type e ON e.oid = t.typelem AND t.typcategory = 'A'
+                 WHERE t.oid = ANY(%s)
+            """, [list({oid for _name, oid in columns})])
+            types = {row[0]: row[1:] for row in cr.fetchall()}
+            return [(name, *types.get(oid, ('unknown', 'X', None, None))) for name, oid in columns]
+        finally:
+            cr.rollback()
+            cr.close()
+
     def _execute_on_request_cursor(self, query, params, limit):
         cr = self.env.cr
         self.env.flush_all()

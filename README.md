@@ -107,6 +107,48 @@ database. Record ids are not.
 **Row cap.** A template's *Row Cap* lowers `tk_squeeler.max_rows` for that
 template. It can't raise it.
 
+### Discovery: `catalog()` and `describe(code)`
+
+Both are on `tk.squeeler.template`, require the same groups as `run`, and are
+`@api.readonly`: on JSON-2 they get a read-only cursor, or the replica.
+
+- `catalog()` lists every active template the caller may run: code, name,
+  description, parameters, `input_schema`, `max_rows` and `checksum`.
+- `describe(code)` returns the same entry plus `columns`, each with its name,
+  PostgreSQL type and JSON Schema.
+
+```json
+{
+  "code": "users_by_login",
+  "name": "Users by login",
+  "description": "...",
+  "params": [{"name": "login", "type": "str", "required": true, "default": null, "description": ""}],
+  "server_params": ["uid"],
+  "input_schema": {"type": "object", "properties": {"login": {"type": "string"}},
+                   "required": ["login"], "additionalProperties": false},
+  "columns": [{"name": "id", "pg_type": "integer", "json_schema": {"type": ["integer", "null"]}}],
+  "max_rows": 10000,
+  "checksum": "9f2c..."
+}
+```
+
+`input_schema` is plain JSON Schema, so it can be used as is as an MCP tool's
+`inputSchema` or fed to a code generator. Columns are not stored: `describe`
+plans the query behind a server-side cursor with typed sample values and
+fetches zero rows, so no data is read and a schema change is visible on the
+next call. A template that no longer plans raises `UserError`.
+
+The SQL is never returned. A template explains itself through its
+*description* and its parameters' descriptions, so write those for a reader who
+can't see the query, such as an LLM picking a tool.
+
+`checksum` hashes the query and the parameter declarations. It is identical
+across cloned databases while the template is unchanged, so clients and the
+proxy can use it to detect drift or as a cache key.
+
+`describe` and `catalog` calls are not written to the audit log. They read no
+data.
+
 ## Guarantees and limits
 
 **One statement per call.** psycopg2 uses PostgreSQL's simple query protocol,

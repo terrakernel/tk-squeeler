@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+from datetime import date, datetime
+
+import psycopg2
 
 from odoo import _, api, fields, models
-from odoo.exceptions import AccessError, ValidationError
+from odoo.exceptions import AccessError, UserError, ValidationError
 
+from .. import schema
 from ..sql_guard import is_single_statement, named_placeholders
 
 CODE_PATTERN = re.compile(r'^[a-z][a-z0-9_]*$')
@@ -45,7 +50,10 @@ class TkSqueelerTemplate(models.Model):
              "starting with a letter. Only one active template may hold a given code.",
     )
     active = fields.Boolean(default=True)
-    description = fields.Text()
+    description = fields.Text(
+        help="What the template returns and when to use it. API clients and LLM agents read it "
+             "through catalog() and describe(), so write it for someone who cannot see the SQL.",
+    )
     query = fields.Text(
         required=True,
         help="One read-only SQL statement. Use %(name)s for parameters and %% for a literal %. "
@@ -158,6 +166,88 @@ class TkSqueelerTemplate(models.Model):
         """
         return self.env['tk.squeeler']._run_template(code, params, limit)
 
+    @api.model
+    @api.readonly
+    def catalog(self):
+        """List the active templates the caller may run, without their result columns.
+
+        Meant for discovery, e.g. by an LLM agent choosing a tool: each entry
+        has the code, name, description, parameters and ``input_schema``.
+        Call :meth:`describe` for the result columns.
+        """
+        templates = self.sudo().search([('group_ids', 'in', self.env.user.all_group_ids.ids)])
+        return [template._describe() for template in templates]
+
+    @api.model
+    @api.readonly
+    def describe(self, code):
+        """Describe the active template ``code``: what :meth:`run` accepts and returns.
+
+        :return: dict with ``code``, ``name``, ``description``, ``params``,
+            ``server_params``, ``input_schema`` (JSON Schema of ``params``),
+            ``columns`` (name, PostgreSQL type and JSON Schema of each result
+            column), ``max_rows`` and ``checksum``. The SQL itself is not exposed.
+        """
+        template = self._get_runnable(code)
+        template._check_query()
+        description = template._describe()
+        squeeler = self.env['tk.squeeler']
+        try:
+            columns = squeeler._describe_columns(template.query, {**template._sample_params(), **squeeler._server_params()})
+        except psycopg2.Error as e:
+            raise UserError(_("Template %(code)s cannot be planned: %(error)s", code=template.code, error=str(e).strip())) from None
+        description['columns'] = [
+            {
+                'name': name,
+                'pg_type': pg_type,
+                'json_schema': schema.column_schema(pg_type, category, element_type, element_category),
+            }
+            for name, pg_type, category, element_type, element_category in columns
+        ]
+        return description
+
+    def _describe(self):
+        self.ensure_one()
+        params = [
+            {
+                'name': param.name,
+                'type': param.type,
+                'required': param.required,
+                'default': json.loads(param.default) if param.default else None,
+                'description': param.description or '',
+            }
+            for param in self.param_ids
+        ]
+        max_rows = self.env['tk.squeeler']._max_rows()
+        return {
+            'code': self.code,
+            'name': self.name,
+            'description': self.description or '',
+            'params': params,
+            'server_params': sorted(named_placeholders(self.query) & RESERVED_PARAMS),
+            'input_schema': schema.input_schema(params),
+            'max_rows': min(max_rows, self.max_rows) if self.max_rows else max_rows,
+            'checksum': self._checksum(),
+        }
+
+    def _checksum(self):
+        """Hash of everything that defines the template's behaviour.
+
+        Equal across databases cloned from one another while the template is
+        unchanged, so clients and the proxy can detect drift or key a cache on it.
+        """
+        self.ensure_one()
+        definition = {
+            'query': self.query,
+            'params': [(param.name, param.type, param.required, param.default or None) for param in self.param_ids],
+        }
+        return hashlib.sha256(json.dumps(definition, sort_keys=True).encode()).hexdigest()
+
+    def _sample_params(self):
+        """Typed placeholder values for planning the query without real input."""
+        self.ensure_one()
+        return {param.name: param._sample_value() for param in self.param_ids}
+
     # ------------------------------------------------------------------
     # Helpers for tk.squeeler
     # ------------------------------------------------------------------
@@ -237,6 +327,21 @@ class TkSqueelerTemplateParam(models.Model):
                     param._coerce(json.loads(param.default))
                 except (ValueError, ValidationError) as e:
                     raise ValidationError(_("Default for %(name)s is not valid: %(error)s", name=param.name, error=e)) from None
+
+    def _sample_value(self):
+        self.ensure_one()
+        if self.default:
+            return self._coerce(json.loads(self.default))
+        return {
+            'int': 0,
+            'float': 0.0,
+            'str': '',
+            'bool': False,
+            'date': date.today(),
+            'datetime': datetime.now(),
+            'int_list': [],
+            'str_list': [],
+        }[self.type]
 
     def _coerce(self, value):
         """Return ``value`` converted to this parameter's type, or raise ValidationError."""

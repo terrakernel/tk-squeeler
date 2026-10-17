@@ -1,6 +1,6 @@
 from psycopg2 import IntegrityError
 
-from odoo.exceptions import AccessError, ValidationError
+from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.fields import Command
 from odoo.tests import tagged
 from odoo.tests.common import TransactionCase, new_test_user
@@ -116,3 +116,36 @@ class TestSqueelerTemplate(TransactionCase):
         self.assertEqual(first.code, 'users_by_login_copy')
         self.assertEqual(second.code, 'users_by_login_copy_2')
         self.assertEqual(first.param_ids.mapped('name'), ['login', 'n'])
+
+    def test_catalog(self):
+        codes = [entry['code'] for entry in self.Template.with_user(self.runner).catalog()]
+        self.assertEqual(codes, ['users_by_login'])
+        self.assertEqual(self.Template.with_user(self.outsider).catalog(), [])
+        self.assertNotIn('columns', self.Template.with_user(self.runner).catalog()[0])
+
+    def test_describe(self):
+        description = self.Template.with_user(self.runner).describe('users_by_login')
+        self.assertNotIn('query', description)
+        self.assertEqual(description['server_params'], ['uid'])
+        self.assertEqual(description['input_schema']['required'], ['login'])
+        self.assertEqual(description['input_schema']['properties']['n'], {'type': 'integer', 'default': 5})
+        self.assertEqual(
+            [(column['name'], column['pg_type']) for column in description['columns']],
+            [('id', 'integer'), ('login', 'character varying')],
+        )
+        self.assertEqual(description['columns'][0]['json_schema'], {'type': ['integer', 'null']})
+
+    def test_describe_access(self):
+        with self.assertRaises(AccessError):
+            self.Template.with_user(self.outsider).describe('users_by_login')
+
+    def test_describe_broken_template(self):
+        self.template.query = "SELECT no_such_column FROM res_users WHERE login = %(login)s LIMIT %(n)s"
+        with self.assertRaises(UserError):
+            self.Template.with_user(self.runner).describe('users_by_login')
+
+    def test_checksum(self):
+        before = self.template._checksum()
+        self.assertEqual(self.template.copy()._checksum(), before)
+        self.template.query += " -- changed"
+        self.assertNotEqual(self.template._checksum(), before)
