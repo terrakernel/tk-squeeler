@@ -25,8 +25,8 @@ class TestSqueeler(TransactionCase):
         # the failure log this module writes.
         try:
             func(*args)
-        except exception:
-            return
+        except exception as e:
+            return e
         self.fail(f"{exception.__name__} not raised")
 
     def _logs(self, user):
@@ -53,11 +53,27 @@ class TestSqueeler(TransactionCase):
 
     def test_read_cannot_write(self):
         squeeler = self.env['tk.squeeler'].with_user(self.reader)
-        self._raises_and_logs(UserError, squeeler.execute_read, "SELECT nextval('res_partner_id_seq')")
-        self._raises_and_logs(UserError, squeeler.execute_read, "UPDATE res_partner SET name = 'x'")
+        error = self._raises_and_logs(UserError, squeeler.execute_read, "SELECT nextval('res_partner_id_seq')")
+        self.assertIn("Use execute_write to change data.", str(error))
+        error = self._raises_and_logs(UserError, squeeler.execute_read, "UPDATE res_partner SET name = 'x'")
+        self.assertIn("not UPDATE. Use execute_write", str(error))
         logs = self._logs(self.reader)
         self.assertEqual(len(logs), 2)
         self.assertEqual(set(logs.mapped('state')), {'failed'})
+        self.assertIn("Use execute_write", logs[0].error)
+
+    def test_read_hint_follows_the_failing_keyword(self):
+        squeeler = self.env['tk.squeeler'].with_user(self.reader)
+        # The keyword comes after a filled-in placeholder, which shifts positions.
+        error = self._raises_and_logs(
+            UserError, squeeler.execute_read,
+            "WITH p AS (SELECT id FROM res_partner WHERE name = %s) UPDATE res_partner SET name = name",
+            ["a longer value than the placeholder"],
+        )
+        self.assertIn("not UPDATE. Use execute_write", str(error))
+        error = self._raises_and_logs(UserError, squeeler.execute_read, "SELEC 1")
+        self.assertIn('syntax error at or near "SELEC"', str(error))
+        self.assertNotIn("execute_write", str(error))
 
     def test_multiple_statements_rejected(self):
         with self.assertRaises(ValidationError):

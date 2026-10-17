@@ -3,10 +3,12 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import re
 import time
 from datetime import date, datetime, timezone
 
 import psycopg2
+from psycopg2 import errorcodes
 
 from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
@@ -17,6 +19,15 @@ _logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_ROWS = 10000
 DEFAULT_STATEMENT_TIMEOUT_MS = 30000
+
+DECLARE_PREFIX = "DECLARE tk_squeeler NO SCROLL CURSOR FOR "
+# Statements DECLARE CURSOR cannot wrap. PostgreSQL reports them as a syntax
+# error at the keyword, which reads like malformed SQL rather than wrong method.
+NON_QUERY_KEYWORDS = frozenset({
+    'ALTER', 'ANALYZE', 'CALL', 'COMMENT', 'COPY', 'CREATE', 'DELETE', 'DO', 'DROP',
+    'EXPLAIN', 'GRANT', 'INSERT', 'LOCK', 'MERGE', 'REFRESH', 'REINDEX', 'RESET',
+    'REVOKE', 'SET', 'SHOW', 'TRUNCATE', 'UPDATE', 'VACUUM',
+})
 
 
 class TkSqueeler(models.AbstractModel):
@@ -110,6 +121,10 @@ class TkSqueeler(models.AbstractModel):
                 result = self._execute_on_request_cursor(query, params, limit)
         except (psycopg2.Error, AccessError, ValidationError) as e:
             message = str(e).strip()
+            if mode == 'read' and template_state is None and isinstance(e, psycopg2.Error):
+                hint = self._read_mode_hint(e, query, params)
+                if hint:
+                    message = f"{message}\n\n{hint}"
             # The request transaction is about to roll back, taking anything
             # written on it with it, so failures are logged on a cursor of their own.
             self._log_on_new_cursor(mode, query, params, started, error=message, template_state=template_state)
@@ -131,7 +146,7 @@ class TkSqueeler(models.AbstractModel):
             # is_single_statement() has already ruled out anything after the
             # query that could escape this prefix.
             # Failures are recorded in the audit log; skip Odoo's "bad query" ERROR.
-            cr.execute("DECLARE tk_squeeler NO SCROLL CURSOR FOR " + query, params or None, log_exceptions=False)
+            cr.execute(DECLARE_PREFIX + query, params or None, log_exceptions=False)
             cr.execute("FETCH FORWARD %s FROM tk_squeeler", [limit + 1])
             return self._collect(cr, limit)
         finally:
@@ -151,7 +166,7 @@ class TkSqueeler(models.AbstractModel):
         try:
             cr.execute("SET TRANSACTION READ ONLY")
             cr.execute("SELECT set_config('statement_timeout', %s, true)", [str(self._statement_timeout())])
-            cr.execute("DECLARE tk_squeeler NO SCROLL CURSOR FOR " + query, params or None, log_exceptions=False)
+            cr.execute(DECLARE_PREFIX + query, params or None, log_exceptions=False)
             # Before the first row, FETCH 0 returns nothing but still sets the description.
             cr.execute("FETCH FORWARD 0 FROM tk_squeeler")
             columns = [(column.name, column.type_code) for column in cr.description]
@@ -180,6 +195,26 @@ class TkSqueeler(models.AbstractModel):
             cr.execute("SELECT set_config('statement_timeout', %s, true)", [previous_timeout])
         self.env.invalidate_all()
         return result
+
+    @api.model
+    def _read_mode_hint(self, error, query, params):
+        """Point an execute_read caller at execute_write when that is the fix."""
+        if error.pgcode == errorcodes.READ_ONLY_SQL_TRANSACTION:
+            return _("execute_read runs in a read-only transaction. Use execute_write to change data.")
+        position = error.diag.statement_position
+        if error.pgcode != errorcodes.SYNTAX_ERROR or not position:
+            return ''
+        # The only statement that can fail to parse is the DECLARE. Rebuild it
+        # as sent, placeholders filled in, so the position lines up.
+        sent = self.env.cr.mogrify(DECLARE_PREFIX + query, params or None).decode()
+        keyword = re.match(r'[A-Za-z]*', sent[int(position) - 1:]).group().upper()
+        if keyword not in NON_QUERY_KEYWORDS:
+            return ''
+        return _(
+            "execute_read only accepts SELECT, VALUES, TABLE and WITH ... SELECT queries, not %(keyword)s. "
+            "Use execute_write for other statements.",
+            keyword=keyword,
+        )
 
     @api.model
     def _collect(self, cr, limit):

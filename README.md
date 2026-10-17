@@ -39,6 +39,10 @@ anything else unusual (UUID, interval, inet, ranges) becomes its string form.
 Errors are raised, not returned: `AccessError` (missing group),
 `ValidationError` (bad input, more than one statement) or `UserError` carrying
 PostgreSQL's message (syntax error, timeout, write attempted in read mode).
+PostgreSQL reports a write or DDL statement sent to `execute_read` as a syntax
+error at its keyword, so the message then ends with a hint to use
+`execute_write`. The same hint follows a read-only rejection such as
+`nextval()`.
 
 ### Example (`execute_kw`)
 
