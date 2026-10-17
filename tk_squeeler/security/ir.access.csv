@@ -1,0 +1,2 @@
+id,name,model_id,group_id/id,operation,domain
+access_tk_squeeler_log_system,tk.squeeler.log system,tk.squeeler.log,base.group_system,rd,

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <menuitem id="menu_squeeler_log"
+              name="SQL Audit Log"
+              parent="base.menu_administration"
+              action="tk_squeeler_log_action"
+              sequence="91"
+              groups="base.group_system"/>
+
+</odoo>

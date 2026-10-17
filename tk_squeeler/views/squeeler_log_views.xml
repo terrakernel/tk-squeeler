@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="tk_squeeler_log_view_list" model="ir.ui.view">
+        <field name="name">tk.squeeler.log.list</field>
+        <field name="model">tk.squeeler.log</field>
+        <field name="arch" type="xml">
+            <list string="SQL Audit Log" create="false" edit="false"
+                  decoration-danger="state == 'failed'">
+                <field name="executed_at"/>
+                <field name="user_id"/>
+                <field name="mode" widget="badge"
+                       decoration-warning="mode == 'write'"/>
+                <field name="query"/>
+                <field name="rowcount"/>
+                <field name="duration_ms" optional="show"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'done'"
+                       decoration-danger="state == 'failed'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="tk_squeeler_log_view_form" model="ir.ui.view">
+        <field name="name">tk.squeeler.log.form</field>
+        <field name="model">tk.squeeler.log</field>
+        <field name="arch" type="xml">
+            <form string="SQL Call" create="false" edit="false">
+                <header>
+                    <field name="state" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="user_id"/>
+                            <field name="mode"/>
+                            <field name="executed_at"/>
+                        </group>
+                        <group>
+                            <field name="rowcount"/>
+                            <field name="duration_ms"/>
+                        </group>
+                    </group>
+                    <group string="Error" invisible="state != 'failed'">
+                        <field name="error" nolabel="1"/>
+                    </group>
+                    <group string="Query">
+                        <field name="query" nolabel="1" class="font-monospace"/>
+                    </group>
+                    <group string="Parameters" invisible="not params">
+                        <field name="params" nolabel="1" widget="code" options="{'mode': 'json'}"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="tk_squeeler_log_view_search" model="ir.ui.view">
+        <field name="name">tk.squeeler.log.search</field>
+        <field name="model">tk.squeeler.log</field>
+        <field name="arch" type="xml">
+            <search string="SQL Audit Log">
+                <field name="query"/>
+                <field name="user_id"/>
+                <filter name="write" string="Writes" domain="[('mode', '=', 'write')]"/>
+                <filter name="read" string="Reads" domain="[('mode', '=', 'read')]"/>
+                <separator/>
+                <filter name="failed" string="Failed" domain="[('state', '=', 'failed')]"/>
+                <separator/>
+                <filter name="filter_executed_at" string="Executed On" date="executed_at"/>
+                <group>
+                    <filter name="group_by_user" string="User" context="{'group_by': 'user_id'}"/>
+                    <filter name="group_by_mode" string="Mode" context="{'group_by': 'mode'}"/>
+                    <filter name="group_by_state" string="Status" context="{'group_by': 'state'}"/>
+                    <filter name="group_by_date" string="Date" context="{'group_by': 'executed_at:day'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="tk_squeeler_log_action" model="ir.actions.act_window">
+        <field name="name">SQL Audit Log</field>
+        <field name="res_model">tk.squeeler.log</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No SQL has been run yet</p>
+            <p>Every call to tk.squeeler.execute_read and execute_write lands here, including denied and failed ones. Entries older than 90 days are cleaned up automatically.</p>
+        </field>
+    </record>
+
+</odoo>

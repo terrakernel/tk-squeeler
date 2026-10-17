@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <data noupdate="1">
+
+        <record id="config_max_rows" model="ir.config_parameter">
+            <field name="key">tk_squeeler.max_rows</field>
+            <field name="value">10000</field>
+        </record>
+
+        <record id="config_statement_timeout_ms" model="ir.config_parameter">
+            <field name="key">tk_squeeler.statement_timeout_ms</field>
+            <field name="value">30000</field>
+        </record>
+
+    </data>
+
+    <record id="ir_cron_gc_squeeler_logs" model="ir.cron">
+        <field name="name">Squeeler: Clean up audit log</field>
+        <field name="model_id" ref="model_tk_squeeler_log"/>
+        <field name="state">code</field>
+        <field name="code">model._gc_logs(days=90)</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="priority">8</field>
+    </record>
+
+</odoo>

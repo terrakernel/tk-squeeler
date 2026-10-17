@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Neither group is implied by base.group_system: raw SQL is granted to
+         named users (typically the integration user behind ODXProxy), never
+         to every administrator by default. -->
+
+    <record id="group_squeeler_read" model="res.groups">
+        <field name="name">Squeeler: Read SQL</field>
+        <field name="comment">Run read-only SQL through tk.squeeler.execute_read. Bypasses record rules and field access: every table in the database is readable, including credentials and API keys.</field>
+    </record>
+
+    <record id="group_squeeler_write" model="res.groups">
+        <field name="name">Squeeler: Write SQL</field>
+        <field name="comment">Run any single SQL statement through tk.squeeler.execute_write, inside the request transaction and outside the ORM.</field>
+        <field name="implied_ids" eval="[Command.link(ref('tk_squeeler.group_squeeler_read'))]"/>
+    </record>
+
+</odoo>
