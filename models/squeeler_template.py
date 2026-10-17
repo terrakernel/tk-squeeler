@@ -89,12 +89,19 @@ class TkSqueelerTemplate(models.Model):
         for vals in vals_list:
             if 'code' in vals:
                 vals['code'] = normalize_code(vals['code'])
+        # The INSERT runs at once, but an archive earlier in the transaction
+        # may still be pending, and the unique index would see the old row active.
+        self.flush_model(['active', 'code'])
         return super().create(vals_list)
 
     def write(self, vals):
         if 'code' in vals:
             vals['code'] = normalize_code(vals['code'])
-        return super().write(vals)
+        result = super().write(vals)
+        if 'active' in vals or 'code' in vals:
+            # Hit the unique index here rather than at some later flush.
+            self.flush_recordset(['active', 'code'])
+        return result
 
     def copy_data(self, default=None):
         default = dict(default or {})
@@ -304,7 +311,8 @@ class TkSqueelerTemplateParam(models.Model):
 
     template_id = fields.Many2one('tk.squeeler.template', required=True, ondelete='cascade', index=True)
     sequence = fields.Integer(default=10)
-    name = fields.Char(required=True, help="Used in the query as %(name)s.")
+    # copy=True: Odoo otherwise appends " (copy)" to a duplicated name field.
+    name = fields.Char(required=True, copy=True, help="Used in the query as %(name)s.")
     type = fields.Selection(PARAM_TYPES, required=True, default='str')
     required = fields.Boolean()
     default = fields.Char(help='A JSON value used when the caller omits the parameter, e.g. 10, "draft", [1, 2], "2026-01-31".')
