@@ -19,8 +19,9 @@ parameters, and need only one of the template's allowed groups, not raw SQL.
     'version': '20.0.1.0.0',
     'category': 'Technical',
     'author': 'TerraKernel',
-    'website': 'https://github.com/terrakernel/tk-squeeler',
+    'website': 'https://terrakernel.com.sg',
     'license': 'LGPL-3',
+    'images': ['static/description/banner.png'],
     'depends': ['base'],
     'data': [
         'security/squeeler_groups.xml',

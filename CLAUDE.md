@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-An Odoo 20.0 addon, `tk_squeeler` (depends only on `base`), that exposes raw PostgreSQL to external API clients (`execute_kw`, JSON-2, ODXProxy `call_method`). `README.md` is the user-facing spec for the API, guarantees and limits. Keep it in sync when behaviour changes.
+An Odoo 20.0 addon, `tk_squeeler` (depends only on `base`), that exposes raw PostgreSQL to external API clients (`execute_kw`, JSON-2, ODXProxy `call_method`). `tk_squeeler/README.md` is the user-facing spec for the API, guarantees and limits. Keep it in sync when behaviour changes.
 
-The repo root *is* the module, and Odoo takes the module name from the folder name. The checkout must therefore be named `tk_squeeler` (`git clone git@github.com:terrakernel/tk-squeeler.git tk_squeeler`): a default `tk-squeeler` clone is not a valid module name, and every `tk_squeeler.*` xmlid would break. The *parent* folder of the checkout goes on `--addons-path`.
+The module lives in `tk_squeeler/`, one level below the repo root, because the Odoo Apps Store only picks up modules in top-level folders of the branch it scans. The checkout itself goes on `--addons-path`, and its folder name doesn't matter. Paths below are relative to `tk_squeeler/`. `static/description/index.html` and `banner.png` are the Apps Store listing. The app is free (no `price` in the manifest).
 
 ## Running tests
 
@@ -14,7 +14,7 @@ There is no build, lint config or test runner in the repo. Tests run under an Od
 
 ```sh
 # whole module
-odoo-bin -d <db> --addons-path=<odoo>/addons,<parent of the tk_squeeler checkout> -i tk_squeeler --test-enable --stop-after-init
+odoo-bin -d <db> --addons-path=<odoo>/addons,<repo checkout> -i tk_squeeler --test-enable --stop-after-init
 # one class or one method (Odoo test-tags syntax: [module][/Class][.method])
 odoo-bin ... -u tk_squeeler --test-tags /tk_squeeler:TestSqueelerTemplate
 odoo-bin ... -u tk_squeeler --test-tags /tk_squeeler:TestSqueeler.test_read_returns_rows

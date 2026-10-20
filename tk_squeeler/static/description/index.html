@@ -1,0 +1,111 @@
+<section class="container" style="max-width: 960px; margin: 0 auto; padding: 32px 16px; color: #2b2b2b;">
+
+    <div style="text-align: center; margin-bottom: 40px;">
+        <img src="icon.png" alt="TerraKernel" style="width: 96px; height: 96px;"/>
+        <h1 style="margin: 16px 0 8px; font-weight: 700;">TerraKernel Squeeler</h1>
+        <p style="font-size: 1.25rem; color: #555; margin: 0;">
+            Run raw SQL through the Odoo external API, with read-only safety enforced by PostgreSQL.
+        </p>
+        <p style="margin-top: 16px;">
+            Built by <a href="https://terrakernel.com.sg" target="_blank" style="color: #a8862f; font-weight: 600;">TerraKernel</a>
+        </p>
+    </div>
+
+    <div class="row" style="margin-bottom: 32px;">
+        <div class="col-md-6" style="margin-bottom: 24px;">
+            <h3 style="color: #a8862f;">Read-only queries</h3>
+            <p>
+                <code>tk.squeeler.execute_read</code> runs one statement in its own <code>READ ONLY</code>
+                transaction, on the replica if one is configured, with a statement timeout and a row cap.
+                PostgreSQL itself rejects any write, DDL or <code>nextval()</code>.
+            </p>
+        </div>
+        <div class="col-md-6" style="margin-bottom: 24px;">
+            <h3 style="color: #a8862f;">Writes, when you need them</h3>
+            <p>
+                <code>tk.squeeler.execute_write</code> runs one statement inside the caller's transaction,
+                in a savepoint, then invalidates the ORM cache. It is gated by its own group.
+            </p>
+        </div>
+        <div class="col-md-6" style="margin-bottom: 24px;">
+            <h3 style="color: #a8862f;">Query templates</h3>
+            <p>
+                Administrators save vetted read-only queries with typed, named parameters.
+                Integration users run them by code with only one of the template's allowed groups,
+                no raw SQL access needed. <code>describe</code> returns a JSON Schema for the
+                parameters and the result columns.
+            </p>
+        </div>
+        <div class="col-md-6" style="margin-bottom: 24px;">
+            <h3 style="color: #a8862f;">Full audit log</h3>
+            <p>
+                Every call is recorded with user, query, parameters, row count, duration and error,
+                including denied calls and failed queries.
+            </p>
+        </div>
+    </div>
+
+    <h2 style="margin-bottom: 16px;">Works with every Odoo API client</h2>
+    <p><code>execute_kw</code> (XML-RPC / JSON-RPC), JSON-2 and
+        <a href="https://odxproxy.io" target="_blank" style="color: #a8862f; font-weight: 600;">ODXProxy</a>
+        <code>call_method</code>.</p>
+    <pre style="background: #f6f4ee; border: 1px solid #e6dfcc; border-radius: 6px; padding: 16px; overflow-x: auto;">models.execute_kw(db, uid, api_key, 'tk.squeeler', 'execute_read',
+                  ["SELECT id, name FROM res_partner WHERE id = %s", [7]],
+                  {'limit': 50})
+
+# {"columns": ["id", "name"], "rows": [[7, "Azure Interior"]],
+#  "rowcount": 1, "truncated": false}</pre>
+    <pre style="background: #f6f4ee; border: 1px solid #e6dfcc; border-radius: 6px; padding: 16px; overflow-x: auto;">POST /json/2/tk.squeeler.template/run
+{"code": "partner_balance", "params": {"date_to": "2026-09-30", "partner_ids": [7, 9]}}</pre>
+
+    <h2 style="margin: 32px 0 16px;">Pairs with ODXProxy</h2>
+    <p>
+        <a href="https://odxproxy.io" target="_blank" style="color: #a8862f; font-weight: 600;">ODXProxy</a>
+        is a JSON-RPC proxy in front of Odoo, also by TerraKernel. Your apps hold one proxy key instead of
+        Odoo credentials, and reach Squeeler through v1 (<code>execute_kw</code>, any Odoo version) or
+        v2 (JSON-2), with official SDKs for Python, JavaScript/TypeScript, Java/Kotlin, PHP, Swift and .NET.
+    </p>
+    <pre style="background: #f6f4ee; border: 1px solid #e6dfcc; border-radius: 6px; padding: 16px; overflow-x: auto;">from terrakernel.odxproxyclient import ODXProxyClient
+
+with ODXProxyClient(base_url="https://proxy.example.com", api_key="&lt;proxy key&gt;") as client:
+    odoo = client.for_instance_v2(url="https://erp.example.com", db="prod", api_key="&lt;odoo key&gt;")
+    result = odoo.call_method("tk.squeeler.template", "run", kwargs={
+        "code": "partner_balance",
+        "params": {"date_to": "2026-09-30"},
+    })</pre>
+    <p>
+        <a href="https://odxproxy.io" target="_blank" style="color: #a8862f; font-weight: 600;">Learn more at odxproxy.io &rarr;</a>
+    </p>
+
+    <h2 style="margin: 32px 0 16px;">Guarantees</h2>
+    <ul>
+        <li>One statement per call. Smuggled <code>; COMMIT; ...</code> sequences are rejected before reaching the database.</li>
+        <li>Parameters are always bound by psycopg2, never formatted into the SQL string.</li>
+        <li>Only <code>limit + 1</code> rows ever leave the database, so the row cap also bounds memory.</li>
+        <li>Template SQL is never returned to API callers, and a missing template looks the same as a forbidden one.</li>
+    </ul>
+
+    <div style="background: #fff8e6; border-left: 4px solid #a8862f; padding: 16px; margin: 32px 0;">
+        <strong>Grant with care.</strong> The Read SQL group means database-wide read access, including
+        password hashes, API keys and system parameters. Neither group is given to administrators
+        automatically. Assign them to specific integration users only.
+    </div>
+
+    <h2 style="margin-bottom: 16px;">Setup</h2>
+    <ol>
+        <li>Install the module. It depends only on <code>base</code>.</li>
+        <li>Add <em>Squeeler: Read SQL</em> or <em>Squeeler: Write SQL</em> to your integration user.</li>
+        <li>Optionally create query templates under Settings &rarr; Squeeler &rarr; Query Templates.</li>
+        <li>Tune <code>tk_squeeler.max_rows</code> and <code>tk_squeeler.statement_timeout_ms</code> in System Parameters.</li>
+    </ol>
+    <p>The full API reference is in the module's <code>README.md</code>.</p>
+
+    <div style="text-align: center; margin-top: 48px; padding-top: 24px; border-top: 1px solid #e6dfcc;">
+        <p style="margin: 0 0 8px;">Need help, or a custom Odoo integration?</p>
+        <a href="https://terrakernel.com.sg" target="_blank"
+           style="display: inline-block; background: #a8862f; color: #fff; padding: 10px 24px; border-radius: 6px; text-decoration: none; font-weight: 600;">
+            Visit terrakernel.com.sg
+        </a>
+    </div>
+
+</section>
